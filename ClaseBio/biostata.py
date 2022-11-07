@@ -3,6 +3,26 @@ import numpy as np
 import pandas as pd
 import math
 import scipy.stats as ss
+from sklearn.model_selection import train_test_split
+from statsmodels.formula.api import logit
+
+def results_summary_to_dataframe(results):
+    '''take the result of an statsmodel results table and transforms it into a dataframe'''
+    pvals = results.pvalues
+    coeff = results.params
+    odds = np.exp(results.params)
+    conf_lower = np.exp(results.conf_int(0.05)[0])
+    conf_higher = np.exp(results.conf_int(0.05)[1])
+
+    results_df = pd.DataFrame({"ODDs":odds,
+                               "pvals":pvals,
+                               "coeff":coeff,
+                               "0.05":conf_lower,
+                               "0.95":conf_higher
+                                })
+    #Reordering...
+    results_df = results_df[["ODDs","coeff","pvals","0.05","0.95"]]
+    return results_df
 
 def is_categorical(array_like):
     """
@@ -15,11 +35,11 @@ def is_categorical(array_like):
     """
     return array_like.dtype.name == 'category'
 
-data_in = data_I.copy()
-colgrouped = 'Outcome'
-valueslist = data_I['Outcome'].unique().tolist()
-outpath = outpath
-filename = 'diabetesTHOS'
+#data_in = data_I.copy()
+#colgrouped = 'Outcome'
+#valueslist = data_I['Outcome'].unique().tolist()
+#outpath = outpath
+#filename = 'diabetesTHOS'
 
 def populationtest(data_in, colgrouped, valueslist, outpath, filename):
     """
@@ -110,7 +130,7 @@ def populationtest(data_in, colgrouped, valueslist, outpath, filename):
             ctableT.columns = ctableT.columns.tolist()
             ctableT['Totales'] = dataset_numeric[cols].mean()
             ctableT = ctableT.applymap(lambda x: "{:.2f}".format(x))
-            ctabled = dataset_numeric.groupby(ColGrouped).std().T
+            ctabled = dataset_numeric.groupby(colgrouped).std().T
             ctabled.columns = ctabled.columns.tolist()
             ctabled['Totales'] = dataset_numeric[cols].std()
             ctabled = ctabled.applymap(lambda x: " ({:.2f})".format(x))
@@ -125,3 +145,108 @@ def populationtest(data_in, colgrouped, valueslist, outpath, filename):
                 ctableT.loc[ctableT.index[0], 'p'] = "{:.3f}".format(pvalue)
         CQ  =  pd.concat([CQ, ctableT])
     CQ = CQ.replace(np.nan,'',regex = True)
+    if(outpath.is_dir()):
+        file_save = outpath / (filename + ".xlsx")
+        CQ.to_excel(file_save) 
+    else:
+        outpath.mkdir(parents=True, exist_ok=True)
+        file_save = outpath / (filename + ".xlsx")
+        CQ.to_excel(file_save)  
+    return data_sig
+
+def ortest(data_in, ColGrouped, list_independent, out_path_files, file_name):
+    """
+    Test for odds ratio using a logistical regression for binary dependent variable.
+   
+    Parameters
+    ----------
+    data_in : DataFrame
+        Input Dataframe with the data to be tested
+    ColGrouped : pandas.Column
+        Column with the dependent data
+    list_independent : list of int
+        List of the different independent values to be used in the regression
+    out_path_files : str
+        Output directory
+    file_name : file_name
+        Output file name
+    """
+    #check if dependent variable is binary
+    dataset_dependent = data_in.loc[:,ColGrouped]
+    if(dataset_dependent.isin([0,1]).all()):
+        #check the type of variable per column
+        data_in.loc[:, data_in.dtypes == 'object'] =\
+                data_in.select_dtypes(['object'])\
+                .apply(lambda x: x.astype('category'))
+        data_in.loc[:, data_in.isin([0,1]).all()] = data_in.loc[:, data_in.isin([0,1]).all()].apply(lambda x: x.astype('category'))
+        #select the column for the OR model
+        ColNames = data_in.columns
+        ColNames = np.delete(ColNames, [np.r_[ColNames.get_loc(ColGrouped)]], 0)
+        #ColNames = np.delete(ColNames, [list_independent], 0)
+        #OR
+        dataset_results_final = pd.DataFrame()
+        dataset_independent= data_in.loc[:,ColNames]
+        dataset_dependent = dataset_dependent.astype("int")
+        dataset_model = pd.concat([dataset_dependent, dataset_independent], axis=1)
+        train_data, test_data = train_test_split(dataset_model, test_size=0.20, random_state= 42)
+        #generate string model
+        ColNamesstr = np.delete(ColNames, [np.r_[0]], 0)
+        formula_str = ColGrouped + ' ~ ' + ColNames[0]
+        for cols in ColNamesstr:
+            formula_str = formula_str + ' + ' + cols
+        model = logit(formula = formula_str, data = train_data).fit()
+        dataset_results = results_summary_to_dataframe(model)
+        dataset_results_final['OR (95% CI two-sided)'] = dataset_results['ODDs'].apply('{:.2f}'.format).astype(str) + ' (' + dataset_results['0.05'].apply('{:.2f}'.format).astype(str) + ' - ' + dataset_results['0.95'].apply('{:.2f}'.format).astype(str) +  ' )'
+        dataset_results['ps'] = ''
+        dataset_results.loc[dataset_results['pvals']< 0.05,'ps'] = '< 0.05' 
+        dataset_results.loc[dataset_results['pvals']>= 0.05,'ps'] = dataset_results.loc[dataset_results['pvals']>= 0.05,'pvals'].apply('{:.3f}'.format).astype(str)
+        dataset_results_final['p'] = dataset_results['ps']
+        if(out_path_files.is_dir()):
+            file_save = out_path_files / (file_name + ".xlsx")
+            dataset_results_final.to_excel(file_save) 
+        else:
+            out_path_files.mkdir(parents=True, exist_ok=True)
+            file_save = out_path_files / (file_name + ".xlsx")
+            dataset_results_final.to_excel(file_save) 
+    else:
+        if(pd.get_dummies(dataset_dependent).shape[1]==2):
+            dataset_dependent = pd.get_dummies(dataset_dependent).iloc[:,0]
+            #check the type of variable per column
+            data_in.loc[:, data_in.dtypes == 'object'] =\
+                    data_in.select_dtypes(['object'])\
+                    .apply(lambda x: x.astype('category'))
+            data_in.loc[:, data_in.isin([0,1]).all()] = data_in.loc[:, data_in.isin([0,1]).all()].apply(lambda x: x.astype('category'))
+            #select the column for the OR model
+            ColNames = data_in.columns
+            ColNames = np.delete(ColNames, [np.r_[ColNames.get_loc(ColGrouped)]], 0)
+            #ColNames = np.delete(ColNames, [list_independent], 0)
+            ColGrouped = dataset_dependent.name
+            #OR
+            dataset_results_final = pd.DataFrame()
+            dataset_independent= data_in.loc[:,ColNames]
+            dataset_dependent = dataset_dependent.astype("int")
+            dataset_model = pd.concat([dataset_dependent, dataset_independent], axis=1)
+            train_data, test_data = train_test_split(dataset_model, test_size=0.20, random_state= 42)
+            #generate string model
+            ColNamesstr = np.delete(ColNames, [np.r_[0]], 0)
+            formula_str = ColGrouped + ' ~ ' + ColNames[0]
+            for cols in ColNamesstr:
+                formula_str = formula_str + ' + ' + cols
+            try:
+                model = logit(formula = formula_str, data = train_data).fit()
+            except:
+                print("An exception occurred")
+                return
+            dataset_results = results_summary_to_dataframe(model)
+            dataset_results_final['OR (95% CI two-sided)'] = dataset_results['ODDs'].apply('{:.2f}'.format).astype(str) + ' (' + dataset_results['0.05'].apply('{:.2f}'.format).astype(str) + ' - ' + dataset_results['0.95'].apply('{:.2f}'.format).astype(str) +  ' )'
+            dataset_results['ps'] = ''
+            dataset_results.loc[dataset_results['pvals']< 0.05,'ps'] = '< 0.05' 
+            dataset_results.loc[dataset_results['pvals']>= 0.05,'ps'] = dataset_results.loc[dataset_results['pvals']>= 0.05,'pvals'].apply('{:.3f}'.format).astype(str)
+            dataset_results_final['p'] = dataset_results['ps']
+            if(out_path_files.is_dir()):
+                file_save = out_path_files / (file_name + ".xlsx")
+                dataset_results_final.to_excel(file_save) 
+            else:
+                out_path_files.mkdir(parents=True, exist_ok=True)
+                file_save = out_path_files / (file_name + ".xlsx")
+                dataset_results_final.to_excel(file_save) 

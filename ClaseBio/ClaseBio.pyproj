@@ -11,7 +11,7 @@
     <OutputPath>.</OutputPath>
     <Name>ClaseBio</Name>
     <RootNamespace>ClaseBio</RootNamespace>
-    <InterpreterId>Global|VisualStudio|DataAna</InterpreterId>
+    <InterpreterId>CondaEnv|CondaEnv|Data</InterpreterId>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -26,8 +26,7 @@
     <Compile Include="ClaseBio.py" />
   </ItemGroup>
   <ItemGroup>
-    <InterpreterReference Include="CondaEnv|CondaEnv|Clase2023-1" />
-    <InterpreterReference Include="Global|VisualStudio|DataAna" />
+    <InterpreterReference Include="CondaEnv|CondaEnv|Data" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
